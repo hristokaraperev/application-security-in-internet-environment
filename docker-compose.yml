@@ -1,0 +1,102 @@
+services:
+
+  # ---------- Databases (one per service: decentralised data) ----------
+  auth-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: ${AUTH_DB_USER:-auth}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-authpass}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-auth} -d authdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  wallet-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: walletdb
+      POSTGRES_USER: ${WALLET_DB_USER:-wallet}
+      POSTGRES_PASSWORD: ${WALLET_DB_PASSWORD:-walletpass}
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WALLET_DB_USER:-wallet} -d walletdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------- Auth service (issues JWTs) ----------
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    environment:
+      AUTH_DB_URL: jdbc:postgresql://auth-db:5432/authdb
+      AUTH_DB_USER: ${AUTH_DB_USER:-auth}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:-authpass}
+    ports:
+      - "8081:8081"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+  # ---------- Wallet service (protected resource server) ----------
+  wallet-service:
+    build:
+      context: .
+      dockerfile: wallet-service/Dockerfile
+    environment:
+      WALLET_DB_URL: jdbc:postgresql://wallet-db:5432/walletdb
+      WALLET_DB_USER: ${WALLET_DB_USER:-wallet}
+      WALLET_DB_PASSWORD: ${WALLET_DB_PASSWORD:-walletpass}
+      JWKS_URI: http://auth-service:8081/.well-known/jwks.json
+      AUTH_BASE_URI: http://auth-service:8081
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-change-me-in-prod}
+    ports:
+      # Exposed so the "direct call bypassing the gateway" attack can be shown
+      # from Postman (it must be rejected — missing service token).
+      - "8082:8082"
+    depends_on:
+      wallet-db:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s
+
+  # ---------- Gateway (single entry point + frontend) ----------
+  gateway-service:
+    build:
+      context: .
+      dockerfile: gateway-service/Dockerfile
+    environment:
+      AUTH_SERVICE_URI: http://auth-service:8081
+      WALLET_SERVICE_URI: http://wallet-service:8082
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:-change-me-in-prod}
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_started
+      wallet-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 40s

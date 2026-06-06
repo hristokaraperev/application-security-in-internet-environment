@@ -1,0 +1,213 @@
+{
+  "info": {
+    "name": "Wallet Security Demo",
+    "description": "Готови заявки за демонстрация: автентикация, happy path и атаки (които трябва да се провалят). Login/Refresh автоматично записват токените в средата.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Register (charlie)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"charlie\",\n  \"password\": \"Password123\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] }
+          }
+        },
+        {
+          "name": "Login (alice)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login ok', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('accessToken', json.accessToken);",
+                  "if (json.refreshToken) pm.environment.set('refreshToken', json.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"alice\",\n  \"password\": \"Password123\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login WRONG password (run 6x for lockout)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected (401 then 429)', () => pm.expect([401,429]).to.include(pm.response.code));",
+                  "console.log('status', pm.response.code);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"alice\",\n  \"password\": \"wrong\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Refresh",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.accessToken) pm.environment.set('accessToken', json.accessToken);",
+                  "if (json.refreshToken) pm.environment.set('refreshToken', json.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"] }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Wallet (happy path)",
+      "item": [
+        {
+          "name": "Balance",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wallet/balance", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "balance"] }
+          }
+        },
+        {
+          "name": "Transfer (alice -> bob)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"toUsername\": \"bob\",\n  \"amount\": 100.00\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/wallet/transfer", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "transfer"] }
+          }
+        },
+        {
+          "name": "Transactions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wallet/transactions", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "transactions"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Attacks (must fail)",
+      "item": [
+        {
+          "name": "Balance without token (expect 401)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('401', () => pm.response.to.have.status(401));"] } }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/wallet/balance", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "balance"] }
+          }
+        },
+        {
+          "name": "Tampered token (expect 401)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('401', () => pm.response.to.have.status(401));"] } }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}TAMPERED" }],
+            "url": { "raw": "{{baseUrl}}/api/wallet/balance", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "balance"] }
+          }
+        },
+        {
+          "name": "Direct call to wallet, bypass gateway (expect 401)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('401 forbidden_caller', () => pm.response.to.have.status(401));"] } }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{walletDirect}}/api/wallet/balance", "host": ["{{walletDirect}}"], "path": ["api", "wallet", "balance"] }
+          }
+        },
+        {
+          "name": "Negative amount transfer (expect 400)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('400', () => pm.response.to.have.status(400));"] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"toUsername\": \"bob\",\n  \"amount\": -100.00\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/wallet/transfer", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "transfer"] }
+          }
+        },
+        {
+          "name": "Balance AFTER logout, same token (expect 401)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('401 revoked', () => pm.response.to.have.status(401));"] } }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wallet/balance", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "balance"] }
+          }
+        },
+        {
+          "name": "Transfer over balance (expect 422)",
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('422', () => pm.response.to.have.status(422));"] } }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"toUsername\": \"bob\",\n  \"amount\": 999999.00\n}", "options": { "raw": { "language": "json" } } },
+            "url": { "raw": "{{baseUrl}}/api/wallet/transfer", "host": ["{{baseUrl}}"], "path": ["api", "wallet", "transfer"] }
+          }
+        }
+      ]
+    }
+  ]
+}

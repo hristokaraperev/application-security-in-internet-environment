@@ -1,0 +1,51 @@
+server:
+  port: 8082
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+
+spring:
+  application:
+    name: wallet-service
+  datasource:
+    url: ${WALLET_DB_URL:jdbc:postgresql://localhost:5433/walletdb}
+    username: ${WALLET_DB_USER:wallet}
+    password: ${WALLET_DB_PASSWORD:walletpass}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Public keys are fetched from the auth-service; tokens are verified
+          # with RS256 — no shared signing secret.
+          jwk-set-uri: ${JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+
+app:
+  gateway:
+    shared-secret: ${GATEWAY_SHARED_SECRET:change-me-in-prod}
+    max-skew-seconds: ${GATEWAY_MAX_SKEW:300}
+  auth:
+    # Used for token introspection (revocation check).
+    base-uri: ${AUTH_BASE_URI:http://localhost:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    com.example.wallet: INFO
+    AUDIT: INFO
